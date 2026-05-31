@@ -1,0 +1,72 @@
+# ============================================================================
+# AMIS Platform - Orquestração de Infraestrutura Local
+# ----------------------------------------------------------------------------
+# Sobe dois serviços isolados em rede privada:
+#   1. PostgreSQL  -> Banco de dados relacional (persistência via volume)
+#   2. pgAdmin     -> Painel web para administração visual do banco
+#
+# Decisões de arquitetura/segurança:
+#   - Credenciais NUNCA são hardcoded: vêm do arquivo .env (ver .env.example).
+#   - Volumes nomeados garantem persistência mesmo após `docker compose down`.
+#   - healthcheck no Postgres evita que o backend suba antes do banco estar
+#     pronto (condição `service_healthy`).
+#   - Rede dedicada (`amis-internal`) isola o tráfego do banco; o Postgres NÃO
+#     expõe porta para o host em produção (aqui expomos só para dev local).
+# ============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: amis_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-amis_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:-amis_db}
+      # Força autenticação via senha criptografada (scram-sha-256)
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    ports:
+      # Exposição apenas para desenvolvimento local. Em produção, remova.
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - amis_postgres_data:/var/lib/postgresql/data
+    networks:
+      - amis-internal
+    healthcheck:
+      # O backend só inicia quando este teste passar.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-amis_admin} -d ${POSTGRES_DB:-amis_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  pgadmin:
+    image: dpage/pgadmin4:8.12
+    container_name: amis_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@amis.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?Defina PGADMIN_PASSWORD no .env}
+      # Desabilita o "master password" interativo para uso em dev.
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - amis_pgadmin_data:/var/lib/pgadmin
+    networks:
+      - amis-internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  amis_postgres_data:
+    driver: local
+  amis_pgadmin_data:
+    driver: local
+
+networks:
+  amis-internal:
+    driver: bridge

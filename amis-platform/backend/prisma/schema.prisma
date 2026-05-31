@@ -1,0 +1,130 @@
+// ============================================================================
+// AMIS Platform - Esquema de Banco de Dados (PostgreSQL)
+// ----------------------------------------------------------------------------
+// Decisões de segurança refletidas no schema:
+//   - Chaves primárias UUIDv4 (@default(uuid())): IDs não-sequenciais e
+//     imprevisíveis impedem enumeração de recursos (IDOR / OWASP A01).
+//   - Senha persistida APENAS como hash (passwordHash) -- nunca em texto puro.
+//   - stripeCustomerId: vínculo ao gateway externo. NENHUM dado de cartão
+//     (PAN, CVV, validade) é armazenado localmente => conformidade PCI-DSS.
+//   - Índices (@@index / @unique) em campos de busca frequente para
+//     performance e para reforçar integridade.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// ENUMS
+// ----------------------------------------------------------------------------
+
+enum Role {
+  ALUNO
+  SENSEI
+  GESTOR
+}
+
+enum StatusPresenca {
+  PRESENTE
+  FALTA
+  JUSTIFICADO
+}
+
+enum StatusPagamento {
+  PENDENTE
+  PAGO
+  FALHOU
+}
+
+// ----------------------------------------------------------------------------
+// MODELS
+// ----------------------------------------------------------------------------
+
+/// Usuário da plataforma (Aluno, Sensei ou Gestor).
+model User {
+  id           String  @id @default(uuid()) @db.Uuid
+  nome         String   @db.VarChar(120)
+  email        String   @unique @db.VarChar(180)
+  /// Hash Bcrypt da senha. NUNCA armazenar a senha em texto puro.
+  passwordHash String
+  role         Role     @default(ALUNO)
+  telefone     String?  @db.VarChar(20)
+  ativo        Boolean  @default(true)
+
+  /// Identificador do cliente no gateway de pagamentos (Stripe).
+  /// Permite cobrar o usuário sem custodiar dados de cartão (PCI-DSS).
+  stripeCustomerId String? @unique @db.VarChar(255)
+
+  // Relações
+  presencasComoAluno  Presenca[] @relation("PresencaAluno")
+  presencasComoSensei Presenca[] @relation("PresencaSensei")
+  pagamentos          Pagamento[]
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([role])
+  @@map("users")
+}
+
+/// Registro de presença em uma aula, vinculando Aluno e Sensei responsável.
+model Presenca {
+  id     String         @id @default(uuid()) @db.Uuid
+  status StatusPresenca @default(PRESENTE)
+
+  /// Data/hora da aula a que esta presença se refere.
+  dataAula DateTime
+
+  /// Token assinado embutido no QR Code apresentado em aula.
+  /// Garante autenticidade do check-in e impede fraude de presença
+  /// (o token é de uso único e validado pelo backend, ver PresencaController).
+  qrToken String @unique @db.VarChar(512)
+
+  observacao String? @db.VarChar(255)
+
+  // Aluno que registrou presença
+  alunoId String @db.Uuid
+  aluno   User   @relation("PresencaAluno", fields: [alunoId], references: [id], onDelete: Cascade)
+
+  // Sensei responsável pela aula
+  senseiId String @db.Uuid
+  sensei   User   @relation("PresencaSensei", fields: [senseiId], references: [id], onDelete: Restrict)
+
+  criadoEm DateTime @default(now())
+
+  // Um aluno não pode registrar presença duas vezes na mesma aula/data.
+  @@unique([alunoId, dataAula])
+  @@index([senseiId])
+  @@index([dataAula])
+  @@map("presencas")
+}
+
+/// Histórico de pagamentos (mensalidades / aulas avulsas).
+model Pagamento {
+  id     String          @id @default(uuid()) @db.Uuid
+  /// Valor em centavos NÃO é usado aqui; guardamos em Decimal para auditoria.
+  valor  Decimal         @db.Decimal(10, 2)
+  status StatusPagamento @default(PENDENTE)
+
+  /// ID da transação/PaymentIntent na Stripe (ex.: "pi_3Xyz...").
+  /// É a única referência financeira que mantemos -- nunca dados de cartão.
+  gatewayRefId String? @unique @db.VarChar(255)
+
+  descricao String? @db.VarChar(255)
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  dataCriacao  DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("pagamentos")
+}

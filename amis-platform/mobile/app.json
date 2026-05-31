@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "AMIS",
+    "slug": "amis-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "amis",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#121212"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.amis.mobile"
+    },
+    "android": {
+      "package": "com.amis.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#121212"
+      }
+    },
+    "plugins": [
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.amis",
+          "enableGooglePay": true
+        }
+      ]
+    ]
+  }
+}

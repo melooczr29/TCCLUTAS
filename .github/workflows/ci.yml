@@ -1,0 +1,203 @@
+# ============================================================================
+# CI - AMIS Platform
+# ----------------------------------------------------------------------------
+# [O QUE FAZ]  Pipeline de integração contínua executada pelo GitHub Actions.
+# [POR QUE EXISTE]  Garantir que todo push/PR seja validado automaticamente.
+# [PARA QUE SERVE]  Provar à banca que o sistema é testado de forma contínua e
+#                   resiliente (tipos, testes rápidos e testes E2E com DB real).
+# ============================================================================
+
+# [O QUE FAZ] Nome do workflow exibido na aba "Actions".
+# [POR QUE EXISTE] Identificação clara do pipeline.
+# [PARA QUE SERVE] Facilita achar a execução no GitHub.
+name: CI
+
+# [O QUE FAZ] Define os gatilhos que disparam o pipeline.
+# [POR QUE EXISTE] Queremos validar mudanças na main e em PRs.
+# [PARA QUE SERVE] Evita merge de código quebrado.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+# [O QUE FAZ] Lista os jobs (tarefas) do pipeline.
+# [POR QUE EXISTE] Separar responsabilidades em jobs paralelos/independentes.
+# [PARA QUE SERVE] Falhas ficam isoladas e fáceis de diagnosticar.
+jobs:
+  # ==========================================================================
+  # JOB 1 — Backend: tipos + testes rápidos (unit/integração) + cobertura
+  # ==========================================================================
+  backend:
+    # [O QUE FAZ] Nome amigável do job.
+    # [POR QUE EXISTE] Clareza no painel de execução.
+    # [PARA QUE SERVE] Identificar rapidamente o que rodou.
+    name: Backend (typecheck + testes + cobertura)
+
+    # [O QUE FAZ] Define o SO da máquina virtual.
+    # [POR QUE EXISTE] Ubuntu já vem com Docker e Node disponíveis.
+    # [PARA QUE SERVE] Ambiente estável e gratuito para CI.
+    runs-on: ubuntu-latest
+
+    # [O QUE FAZ] Define a pasta padrão dos comandos "run".
+    # [POR QUE EXISTE] O backend vive em amis-platform/backend.
+    # [PARA QUE SERVE] Evita repetir "cd" em cada passo.
+    defaults:
+      run:
+        working-directory: amis-platform/backend
+
+    # [O QUE FAZ] Variáveis de ambiente fake para a suíte rápida.
+    # [POR QUE EXISTE] config/env.ts valida segredos no boot (fail-fast).
+    # [PARA QUE SERVE] Permite os testes rodarem sem segredos reais.
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://amis_admin:amis_test_pwd@localhost:5432/amis_db?schema=public
+      JWT_SECRET: ci-secret-com-pelo-menos-32-caracteres-aqui!!
+      STRIPE_SECRET_KEY: sk_test_ci_fake
+
+    steps:
+      # [O QUE FAZ] Baixa o código do repositório para a VM.
+      # [POR QUE EXISTE] Sem o código, nada pode ser testado.
+      # [PARA QUE SERVE] Disponibiliza os arquivos do projeto.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # [O QUE FAZ] Instala o Node.js 20 na VM.
+      # [POR QUE EXISTE] É a versão mínima exigida pelo backend.
+      # [PARA QUE SERVE] Garante compatibilidade do runtime.
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # [O QUE FAZ] Instala as dependências do backend.
+      # [POR QUE EXISTE] Os pacotes não são versionados (node_modules).
+      # [PARA QUE SERVE] Prepara o ambiente para build/testes.
+      - name: Instalar dependências
+        run: npm install
+
+      # [O QUE FAZ] Gera o Prisma Client a partir do schema.
+      # [POR QUE EXISTE] O errorHandler usa tipos do client em runtime.
+      # [PARA QUE SERVE] Evita falha de import nos testes de integração.
+      - name: Gerar Prisma Client
+        run: npm run prisma:generate
+
+      # [O QUE FAZ] Valida a sintaxe/coerência do schema.prisma.
+      # [POR QUE EXISTE] Pega erros de modelagem antes de qualquer deploy.
+      # [PARA QUE SERVE] Protege a integridade do banco.
+      - name: Validar schema Prisma
+        run: npx prisma validate
+
+      # [O QUE FAZ] Checa todos os tipos TypeScript.
+      # [POR QUE EXISTE] Erros de tipo devem barrar o merge.
+      # [PARA QUE SERVE] Garante segurança de tipos em produção.
+      - name: Verificar tipos (tsc)
+        run: npm run typecheck
+
+      # [O QUE FAZ] Roda os testes rápidos com relatório de cobertura.
+      # [POR QUE EXISTE] Mede o quanto do código está testado.
+      # [PARA QUE SERVE] Gera o coverage-summary.json (insumo do badge).
+      - name: Testes (unit/integração) + cobertura
+        run: npm run test:coverage
+
+  # ==========================================================================
+  # JOB 2 — E2E: banco PostgreSQL REAL via Testcontainers (Docker)
+  # ==========================================================================
+  e2e:
+    # [O QUE FAZ] Nome do job de testes ponta-a-ponta.
+    # [POR QUE EXISTE] Clareza no painel.
+    # [PARA QUE SERVE] Identifica os testes com banco real.
+    name: E2E (Testcontainers + Postgres real)
+
+    # [O QUE FAZ] Usa Ubuntu (que já possui Docker pronto).
+    # [POR QUE EXISTE] Testcontainers precisa do Docker em execução.
+    # [PARA QUE SERVE] Permite subir o Postgres efêmero.
+    runs-on: ubuntu-latest
+
+    # [O QUE FAZ] Define a pasta de trabalho do backend.
+    # [POR QUE EXISTE] Os testes E2E ficam no backend.
+    # [PARA QUE SERVE] Simplifica os comandos.
+    defaults:
+      run:
+        working-directory: amis-platform/backend
+
+    steps:
+      # [O QUE FAZ] Baixa o código.
+      # [POR QUE EXISTE] Necessário para testar.
+      # [PARA QUE SERVE] Disponibiliza o projeto.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # [O QUE FAZ] Instala Node 20.
+      # [POR QUE EXISTE] Runtime exigido.
+      # [PARA QUE SERVE] Compatibilidade.
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # [O QUE FAZ] Instala dependências (inclui Testcontainers).
+      # [POR QUE EXISTE] Precisamos da lib que orquestra o Docker.
+      # [PARA QUE SERVE] Habilita a subida do Postgres no teste.
+      - name: Instalar dependências
+        run: npm install
+
+      # [O QUE FAZ] Gera o Prisma Client.
+      # [POR QUE EXISTE] Necessário para o "db push" e para o client em runtime.
+      # [PARA QUE SERVE] Permite criar o schema no container e consultar o banco.
+      - name: Gerar Prisma Client
+        run: npm run prisma:generate
+
+      # [O QUE FAZ] Executa a suíte E2E (sobe Postgres, aplica schema, testa).
+      # [POR QUE EXISTE] Validar persistência e fluxos críticos de verdade.
+      # [PARA QUE SERVE] Prova que cadastro, presença e RBAC funcionam no DB real.
+      - name: Rodar testes E2E
+        run: npm run test:e2e
+
+  # ==========================================================================
+  # JOB 3 — Mobile: verificação de tipos do app React Native
+  # ==========================================================================
+  mobile:
+    # [O QUE FAZ] Nome do job mobile.
+    # [POR QUE EXISTE] Clareza no painel.
+    # [PARA QUE SERVE] Identifica a checagem do app.
+    name: Mobile (typecheck)
+
+    # [O QUE FAZ] Roda em Ubuntu.
+    # [POR QUE EXISTE] Suficiente para checagem de tipos.
+    # [PARA QUE SERVE] Ambiente leve e rápido.
+    runs-on: ubuntu-latest
+
+    # [O QUE FAZ] Pasta de trabalho do mobile.
+    # [POR QUE EXISTE] O app vive em amis-platform/mobile.
+    # [PARA QUE SERVE] Simplifica comandos.
+    defaults:
+      run:
+        working-directory: amis-platform/mobile
+
+    steps:
+      # [O QUE FAZ] Baixa o código.
+      # [POR QUE EXISTE] Necessário para checar.
+      # [PARA QUE SERVE] Disponibiliza o app.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # [O QUE FAZ] Instala Node 20.
+      # [POR QUE EXISTE] Runtime exigido pelo Expo/TS.
+      # [PARA QUE SERVE] Compatibilidade.
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # [O QUE FAZ] Instala dependências do mobile.
+      # [POR QUE EXISTE] Necessárias para o tsc reconhecer os tipos.
+      # [PARA QUE SERVE] Habilita a verificação de tipos.
+      - name: Instalar dependências
+        run: npm install
+
+      # [O QUE FAZ] Checa os tipos do app.
+      # [POR QUE EXISTE] Erros de tipo devem barrar o merge.
+      # [PARA QUE SERVE] Garante um app móvel consistente.
+      - name: Verificar tipos (tsc)
+        run: npm run typecheck

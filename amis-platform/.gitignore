@@ -1,0 +1,44 @@
+# Dependências
+node_modules/
+**/node_modules/
+
+# Variáveis de ambiente e segredos (NUNCA commitar)
+.env
+**/.env
+*.env.local
+
+# Build / artefatos
+dist/
+build/
+**/dist/
+**/build/
+
+# Prisma
+backend/prisma/*.db
+
+# Testes / cobertura
+coverage/
+**/coverage/
+# Arquivo temporário com a URL do container Postgres (Testcontainers)
+backend/tests/e2e/.testcontainer-url
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Mobile / React Native
+mobile/.expo/
+mobile/.expo-shared/
+mobile/android/
+mobile/ios/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Editores
+.vscode/
+.idea/
