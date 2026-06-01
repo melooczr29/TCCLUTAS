@@ -54,14 +54,38 @@ export function HomeScreen({ navigation }: ScreenProps<'Home'>): React.JSX.Eleme
         />
       ) : null}
 
+      {/* Atalho: Vincular professor (aluno) */}
+      {isAluno ? (
+        <PrimaryButton
+          label="Vincular Professor"
+          onPress={() => navigation.navigate('VinculoProfessor')}
+        />
+      ) : null}
+
+      {/* Atalho: Vídeos das faixas (aluno) */}
+      {isAluno ? (
+        <PrimaryButton
+          label="Meus Vídeos"
+          onPress={() => navigation.navigate('AlunoVideos')}
+        />
+      ) : null}
+
       {/* Atalho: Gerar QR (Sensei/Gestor) */}
       {isSensei || isGestor ? (
         <PrimaryButton label="Gerar QR da Aula" onPress={() => navigation.navigate('SenseiQr')} />
       ) : null}
 
-      {/* Atalho: Pagamentos (todos) */}
+      {/* Atalho: Meus Alunos (Sensei/Gestor) */}
+      {isSensei || isGestor ? (
+        <PrimaryButton
+          label="Meus Alunos"
+          onPress={() => navigation.navigate('SenseiAlunos')}
+        />
+      ) : null}
+
+      {/* Atalho: Plano (professor) / Acesso (aluno) */}
       <PrimaryButton
-        label={isGestor ? 'Cobranças & Pagamentos' : 'Meus Pagamentos'}
+        label={isAluno ? 'Meu Acesso' : 'Meu Plano'}
         onPress={() => navigation.navigate('Pagamentos')}
       />
 

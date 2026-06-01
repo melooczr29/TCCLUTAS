@@ -1,159 +1,94 @@
 /**
  * ============================================================================
- * PagamentosScreen — Histórico e (para GESTOR) criação de cobrança
+ * PagamentosScreen — "Meu Plano" (professor) / Acesso gratuito (aluno)
  * ----------------------------------------------------------------------------
- * [O QUE FAZ]  Lista pagamentos; o GESTOR cria uma intenção de pagamento (Stripe).
- * [POR QUE EXISTE]  Transparência financeira + emissão segura de cobranças.
- * [PARA QUE SERVE]  Mostra o status (PAGO/PENDENTE/FALHOU) e inicia pagamentos.
- *
- * Segurança: o app NUNCA vê dados de cartão. O backend cria o PaymentIntent e
- * devolve o client_secret; no build nativo, a Payment Sheet da Stripe finaliza.
+ * [O QUE FAZ]  Mostra a assinatura do PROFESSOR (status/limite) e permite
+ *              simular ativar/desativar o plano. Para o ALUNO, informa que o
+ *              acesso é gratuito (quem paga é o professor).
+ * [POR QUE EXISTE]  Novo modelo de negócio: a cobrança é do professor, não do
+ *              aluno. O plano ativo é o que libera os módulos aos alunos.
+ * [PARA QUE SERVE]  Transparência do plano e gating de liberação de módulos.
  * ============================================================================
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
-import { TextField } from '../components/TextField';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { OutlineButton } from '../components/OutlineButton';
 import { useAuth } from '../context/AuthContext';
-import { criarCobranca, listarPagamentos } from '../api/pagamento.api';
-import type { PagamentoItem } from '../api/types';
+import { togglePlano, useDemoStore } from '../api/demoStore';
 import { colors, spacing, typography } from '../theme';
 
-// [O QUE FAZ] Mapeia o status do pagamento para uma cor.
-// [POR QUE EXISTE] Comunicar visualmente o estado (verde/amarelo/vermelho).
-// [PARA QUE SERVE] Leitura rápida do histórico.
-function corDoStatus(status: PagamentoItem['status']): string {
-  if (status === 'PAGO') return colors.success;
-  if (status === 'FALHOU') return colors.danger;
-  return colors.primary;
-}
-
 export function PagamentosScreen(): React.JSX.Element {
-  // [O QUE FAZ] Usuário logado (para saber se é GESTOR).
-  // [POR QUE EXISTE] Só o GESTOR pode criar cobrança (RBAC no front + backend).
-  // [PARA QUE SERVE] Mostra o formulário apenas a quem tem permissão.
+  // [O QUE FAZ] Descobre o papel do usuário logado.
+  // [POR QUE EXISTE] A tela muda para professor x aluno.
+  // [PARA QUE SERVE] Mostrar plano (professor) ou aviso gratuito (aluno).
   const { user } = useAuth();
-  const isGestor = user?.role === 'GESTOR';
+  const isProfessor = user?.role === 'SENSEI' || user?.role === 'GESTOR';
 
-  // [O QUE FAZ] Estados da lista e do formulário de cobrança.
-  // [POR QUE EXISTE] Controlar dados e inputs reativos.
-  // [PARA QUE SERVE] Exibir histórico e criar cobranças.
-  const [pagamentos, setPagamentos] = useState<PagamentoItem[]>([]);
-  const [userId, setUserId] = useState('');
-  const [valor, setValor] = useState('');
-  const [descricao, setDescricao] = useState('');
-  const [error, setError] = useState<string | undefined>();
-  const [success, setSuccess] = useState<string | undefined>();
-  const [loading, setLoading] = useState(false);
+  // [O QUE FAZ] Lê o plano e os alunos vinculados do store.
+  // [POR QUE EXISTE] Exibir status e uso (alunos/limite).
+  // [PARA QUE SERVE] Atualiza ao ativar/desativar o plano.
+  const { plano, vinculados } = useDemoStore();
 
-  // [O QUE FAZ] Carrega os pagamentos do usuário autenticado.
-  // [POR QUE EXISTE] Mostrar o histórico financeiro.
-  // [PARA QUE SERVE] Atualiza a lista ao abrir e após criar cobrança.
-  const carregar = useCallback(async (): Promise<void> => {
-    try {
-      setPagamentos(await listarPagamentos());
-    } catch {
-      // Lista vazia em caso de falha.
-    }
-  }, []);
-
-  useEffect(() => {
-    void carregar();
-  }, [carregar]);
-
-  // [O QUE FAZ] Cria a intenção de pagamento (apenas GESTOR).
-  // [POR QUE EXISTE] Emitir uma cobrança para um aluno.
-  // [PARA QUE SERVE] Backend gera o PaymentIntent; mostramos confirmação.
-  const handleCobrar = async (): Promise<void> => {
-    setError(undefined);
-    setSuccess(undefined);
-
-    const valorNum = Number(valor.replace(',', '.'));
-    if (!userId.trim()) return setError('Informe o ID do aluno (UUID).');
-    if (!Number.isFinite(valorNum) || valorNum <= 0) return setError('Informe um valor válido.');
-
-    try {
-      setLoading(true);
-      const res = await criarCobranca({
-        userId: userId.trim(),
-        valor: valorNum,
-        descricao: descricao.trim() || undefined,
-      });
-      setSuccess(`Cobrança criada! Pagamento: ${res.pagamentoId}`);
-      setUserId('');
-      setValor('');
-      setDescricao('');
-      await carregar();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao criar cobrança.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Screen
-      title={isGestor ? 'Cobranças & Pagamentos' : 'Meus Pagamentos'}
-      subtitle="Acompanhe o status das transações"
-    >
-      {/* Formulário de cobrança (somente GESTOR) */}
-      {isGestor ? (
+  // ---------- VISÃO DO ALUNO: acesso gratuito ----------
+  if (!isProfessor) {
+    return (
+      <Screen title="Acesso" subtitle="Seu acesso ao conteúdo">
         <Card>
-          <Text style={styles.formTitle}>Nova cobrança</Text>
-          <TextField label="ID do aluno (UUID)" value={userId} onChangeText={setUserId} />
-          <TextField
-            label="Valor (R$)"
-            value={valor}
-            onChangeText={setValor}
-            keyboardType="decimal-pad"
-            placeholder="149.90"
-          />
-          <TextField
-            label="Descrição (opcional)"
-            value={descricao}
-            onChangeText={setDescricao}
-            placeholder="Mensalidade Judô - Junho"
-          />
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          {success ? <Text style={styles.success}>{success}</Text> : null}
-          <PrimaryButton label="Criar cobrança" onPress={handleCobrar} loading={loading} />
+          <Text style={styles.free}>Acesso gratuito ✅</Text>
+          <Text style={styles.meta}>
+            Você não paga nada. O seu professor mantém o plano e libera os
+            módulos (Branca, Bordo, Cinza) para você assistir aos vídeos.
+          </Text>
         </Card>
-      ) : null}
+      </Screen>
+    );
+  }
 
-      {/* Mensagens para não-gestores (que não têm o formulário) */}
-      {!isGestor && error ? <Text style={styles.error}>{error}</Text> : null}
+  // ---------- VISÃO DO PROFESSOR: plano/assinatura ----------
+  return (
+    <Screen title="Meu Plano" subtitle="Sua assinatura libera o conteúdo dos alunos">
+      <Card>
+        <View style={styles.row}>
+          <Text style={styles.planoNome}>{plano.nome}</Text>
+          <Text style={[styles.status, { color: plano.ativo ? colors.success : colors.danger }]}>
+            {plano.ativo ? 'ATIVO' : 'INATIVO'}
+          </Text>
+        </View>
+        <Text style={styles.meta}>
+          Limite: {plano.limiteAlunos} alunos · Em uso: {vinculados.length}
+        </Text>
 
-      {/* Histórico */}
-      <Text style={styles.sectionTitle}>Histórico</Text>
-      {pagamentos.length === 0 ? (
-        <Text style={styles.empty}>Nenhum pagamento encontrado.</Text>
+        {/* Aviso conforme o status do plano */}
+        {plano.ativo ? (
+          <Text style={styles.ok}>
+            Plano Ativo — você pode liberar os módulos para seus alunos.
+          </Text>
+        ) : (
+          <Text style={styles.error}>
+            Plano inativo — reative para voltar a liberar módulos aos alunos.
+          </Text>
+        )}
+      </Card>
+
+      {/* Simulação de cobrança/assinatura (demo) */}
+      {plano.ativo ? (
+        <OutlineButton label="Simular cancelamento do plano" onPress={togglePlano} />
       ) : (
-        pagamentos.map((p) => (
-          <Card key={p.id}>
-            <View style={styles.row}>
-              <Text style={styles.valor}>R$ {Number(p.valor).toFixed(2)}</Text>
-              <Text style={[styles.status, { color: corDoStatus(p.status) }]}>{p.status}</Text>
-            </View>
-            {p.descricao ? <Text style={styles.desc}>{p.descricao}</Text> : null}
-            <Text style={styles.data}>{new Date(p.dataCriacao).toLocaleString('pt-BR')}</Text>
-          </Card>
-        ))
+        <PrimaryButton label="Reativar plano" onPress={togglePlano} />
       )}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  formTitle: { color: colors.textPrimary, fontSize: 16, fontWeight: '700', marginBottom: spacing.xs },
-  sectionTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700', marginTop: spacing.lg },
-  empty: { color: colors.textSecondary, ...typography.subtitle },
-  row: { flexDirection: 'row', justifyContent: 'space-between' },
-  valor: { color: colors.textPrimary, fontSize: 18, fontWeight: '700' },
-  status: { fontWeight: '700' },
-  desc: { color: colors.textSecondary, ...typography.subtitle },
-  data: { color: colors.textSecondary, fontSize: 12 },
-  error: { color: colors.danger, ...typography.subtitle },
-  success: { color: colors.success, ...typography.subtitle },
+  free: { color: colors.success, fontSize: 20, fontWeight: '700' },
+  planoNome: { color: colors.textPrimary, fontSize: 20, fontWeight: '700' },
+  status: { fontWeight: '700', fontSize: 14, letterSpacing: 1 },
+  meta: { color: colors.textSecondary, ...typography.subtitle, marginTop: spacing.xs },
+  ok: { color: colors.success, ...typography.subtitle, marginTop: spacing.sm },
+  error: { color: colors.danger, ...typography.subtitle, marginTop: spacing.sm },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
 });

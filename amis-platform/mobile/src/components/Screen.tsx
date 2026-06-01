@@ -59,10 +59,13 @@ export function Screen({
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
           >
-            {content}
+            {/* [O QUE FAZ] Envolve o conteúdo limitando a largura no web.
+                [POR QUE EXISTE] Em telas largas o layout esticaria demais.
+                [PARA QUE SERVE] Aparência tipo celular (coluna centralizada). */}
+            <View style={styles.constrain}>{content}</View>
           </ScrollView>
         ) : (
-          content
+          <View style={styles.constrain}>{content}</View>
         )}
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -72,7 +75,8 @@ export function Screen({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
-  scrollContent: { flexGrow: 1 },
+  scrollContent: { flexGrow: 1, alignItems: 'center' },
+  constrain: { width: '100%', maxWidth: 480, flex: 1 },
   inner: { flex: 1, padding: spacing.lg, gap: spacing.md },
   title: { color: colors.textPrimary, ...typography.title, marginTop: spacing.sm },
   subtitle: { color: colors.textSecondary, ...typography.subtitle, marginBottom: spacing.sm },

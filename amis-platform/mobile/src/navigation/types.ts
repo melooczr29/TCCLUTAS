@@ -21,6 +21,10 @@ export type RootStackParamList = {
   PresencaAluno: undefined;
   SenseiQr: undefined;
   Pagamentos: undefined;
+  VinculoProfessor: undefined;
+  SenseiAlunos: undefined;
+  DetalheAluno: { alunoId: string };
+  AlunoVideos: undefined;
 };
 
 // [O QUE FAZ] Atalho de tipo para as props de cada tela.

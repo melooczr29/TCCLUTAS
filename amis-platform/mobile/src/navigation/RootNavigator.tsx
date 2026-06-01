@@ -21,6 +21,10 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { PresencaAlunoScreen } from '../screens/PresencaAlunoScreen';
 import { SenseiQrScreen } from '../screens/SenseiQrScreen';
 import { PagamentosScreen } from '../screens/PagamentosScreen';
+import { VinculoProfessorScreen } from '../screens/VinculoProfessorScreen';
+import { SenseiAlunosScreen } from '../screens/SenseiAlunosScreen';
+import { DetalheAlunoScreen } from '../screens/DetalheAlunoScreen';
+import { AlunoVideosScreen } from '../screens/AlunoVideosScreen';
 
 // [O QUE FAZ] Cria o navegador em pilha tipado.
 // [POR QUE EXISTE] Navegação empilhada (push/pop) é o padrão do fluxo.
@@ -68,7 +72,27 @@ export function RootNavigator(): React.JSX.Element {
           <Stack.Screen
             name="Pagamentos"
             component={PagamentosScreen}
-            options={{ title: 'Pagamentos' }}
+            options={{ title: 'Plano' }}
+          />
+          <Stack.Screen
+            name="AlunoVideos"
+            component={AlunoVideosScreen}
+            options={{ title: 'Meus Vídeos' }}
+          />
+          <Stack.Screen
+            name="VinculoProfessor"
+            component={VinculoProfessorScreen}
+            options={{ title: 'Vincular Professor' }}
+          />
+          <Stack.Screen
+            name="SenseiAlunos"
+            component={SenseiAlunosScreen}
+            options={{ title: 'Meus Alunos' }}
+          />
+          <Stack.Screen
+            name="DetalheAluno"
+            component={DetalheAlunoScreen}
+            options={{ title: 'Perfil do Aluno' }}
           />
         </>
       ) : (
