@@ -1,0 +1,9 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Kyu Dan: subir tudo (Docker)", "type": "shell", "command": "docker compose up --build -d", "problemMatcher": [] },
+    { "label": "Kyu Dan: parar", "type": "shell", "command": "docker compose down", "problemMatcher": [] },
+    { "label": "Kyu Dan: ver logs da API", "type": "shell", "command": "docker compose logs -f api", "problemMatcher": [] },
+    { "label": "Kyu Dan: zerar banco (apaga os dados)", "type": "shell", "command": "docker compose down -v", "problemMatcher": [] }
+  ]
+}
