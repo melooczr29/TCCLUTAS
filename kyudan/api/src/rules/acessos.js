@@ -8,10 +8,12 @@
 //   mestre / autonomo / aluno   sem poder sobre contas.
 import { HttpError } from '../auth.js';
 
+// Contas de aluno nao entram aqui: nascem no cadastro do aluno (RF-02),
+// que verifica idade, responsavel legal e aceite do termo.
 const CRIAVEIS = {
-  superadmin: ['admin', 'gestor', 'mestre', 'autonomo', 'aluno'],
-  admin: ['gestor', 'mestre', 'autonomo', 'aluno'],
-  gestor: ['mestre', 'aluno'],
+  superadmin: ['admin', 'gestor', 'mestre', 'autonomo'],
+  admin: ['gestor', 'mestre', 'autonomo'],
+  gestor: ['mestre'],
 };
 
 export function podeCriar(ator, novoPerfil) {

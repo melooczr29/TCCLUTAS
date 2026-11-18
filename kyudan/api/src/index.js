@@ -36,7 +36,7 @@ app.use('/api', autenticar, geral);
 app.use((_req, res) => res.status(404).json({ error: 'Rota não encontrada.' }));
 // eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
-  if (err.status) return res.status(err.status).json({ error: err.message });
+  if (err.status) return res.status(err.status).json({ error: err.message, ...(err.extra || {}) });
   if (err.code === '22P02') return res.status(400).json({ error: 'Identificador inválido.' });
   if (err.code === '23514' || err.code === '23503') return res.status(400).json({ error: 'Dados inválidos.' });
   console.error(err);

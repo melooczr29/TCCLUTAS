@@ -1,9 +1,12 @@
--- Kyu Dan: modelo fisico (PostgreSQL 16)
--- Base: tabelas do prototipo (academies, users, students, techniques,
--- skill_progress, training_logs, subscriptions, invoices) mais as lacunas
--- apontadas no PGT: presenca aula a aula, historico de graduacoes, matricula
--- em turmas, responsavel legal, consentimento e auditoria.
+-- Kyu Dan: modelo fisico da arquitetura-alvo (PostgreSQL 16)
+--
+-- Segue o modelo logico da secao 4.8.3 do PGT. Em relacao ao prototipo
+-- (versao 2.0 e versao congelada), inclui as lacunas que o texto aponta:
+-- presenca por aula, historico de graduacoes, matricula em turmas, faixas
+-- configuraveis por academia (RF-10), responsavel legal, consentimento e
+-- trilha de auditoria (secao 4.10).
 
+-- ACADEMIA: raiz do modelo multiacademia.
 CREATE TABLE academies (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name        TEXT NOT NULL,
@@ -21,8 +24,10 @@ CREATE TABLE academies (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Perfis: superadmin (administrador supremo, unico), admin (equipe Kyu Dan,
--- acesso revogavel pelo superadmin), gestor, mestre, autonomo e aluno.
+-- USUARIO. Perfis do PGT (administrador, gestor, mestre, professor autonomo,
+-- aluno) mais o administrador supremo, decisao dos autores: conta unica da
+-- equipe Kyu Dan que nao pode ser revogada e que concede e retira o acesso
+-- dos demais administradores.
 CREATE TABLE users (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name          TEXT NOT NULL,
@@ -35,47 +40,85 @@ CREATE TABLE users (
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
   revoked_at    TIMESTAMPTZ,
   revoked_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+  failed_logins INTEGER NOT NULL DEFAULT 0,   -- RF-01: tentativas consecutivas
+  locked_until  TIMESTAMPTZ,                  -- RF-01: bloqueio temporario
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- So pode existir 1 administrador supremo, e ele nunca fica inativo.
 CREATE UNIQUE INDEX users_um_superadmin ON users ((role)) WHERE role = 'superadmin';
 ALTER TABLE users ADD CONSTRAINT superadmin_sempre_ativo
   CHECK (role <> 'superadmin' OR is_active);
 
--- Faixas e progressao por modalidade (RF-10, RF-20).
--- academy_id nulo = padrao da plataforma; preenchido = configuracao da academia.
+-- MODALIDADE e FAIXA (secao 4.2). A sequencia de faixas e da plataforma;
+-- os requisitos de cada faixa podem ser sobrescritos por academia (RF-10).
+CREATE TABLE modalities (
+  id               TEXT PRIMARY KEY,          -- 'judo', 'bjj'
+  name             TEXT NOT NULL,
+  federation       TEXT,
+  progression_label TEXT                      -- 'kyu/dan', 'graus'
+);
+
 CREATE TABLE belts (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  academy_id       UUID REFERENCES academies(id) ON DELETE CASCADE,
-  modality_id      TEXT NOT NULL,
+  modality_id      TEXT NOT NULL REFERENCES modalities(id),
   name             TEXT NOT NULL,
   color            TEXT NOT NULL DEFAULT '#ffffff',
   sort_order       INTEGER NOT NULL,
-  required_classes INTEGER NOT NULL DEFAULT 50,
-  UNIQUE NULLS NOT DISTINCT (academy_id, modality_id, sort_order)
+  -- Requisitos padrao para CHEGAR a esta faixa.
+  min_classes      INTEGER NOT NULL DEFAULT 50,
+  min_months       INTEGER NOT NULL DEFAULT 0,
+  min_age          INTEGER,                   -- idade regulamentar: so alerta
+  min_tech_pct     INTEGER NOT NULL DEFAULT 100 CHECK (min_tech_pct BETWEEN 0 AND 100),
+  UNIQUE (modality_id, sort_order)
 );
 
+-- RF-10: requisitos configurados pela academia. Sem linha aqui, vale o padrao.
+-- Graduacoes ja lancadas guardam os requisitos da epoca (tabela graduations),
+-- entao uma mudanca so afeta os ciclos em andamento.
+CREATE TABLE belt_settings (
+  academy_id   UUID NOT NULL REFERENCES academies(id) ON DELETE CASCADE,
+  belt_id      UUID NOT NULL REFERENCES belts(id) ON DELETE CASCADE,
+  min_classes  INTEGER NOT NULL CHECK (min_classes >= 0),
+  min_months   INTEGER NOT NULL CHECK (min_months >= 0),
+  min_age      INTEGER CHECK (min_age IS NULL OR min_age >= 0),
+  min_tech_pct INTEGER NOT NULL CHECK (min_tech_pct BETWEEN 0 AND 100),
+  updated_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (academy_id, belt_id)
+);
+
+-- ALUNO (RF-02).
 CREATE TABLE students (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  academy_id  UUID NOT NULL REFERENCES academies(id) ON DELETE CASCADE,
-  user_id     UUID UNIQUE REFERENCES users(id) ON DELETE SET NULL,
-  name        TEXT NOT NULL,
-  birth_date  DATE,
-  phone       TEXT,
-  modality_id TEXT NOT NULL DEFAULT 'judo',
-  belt_id     UUID REFERENCES belts(id),
-  qr_token    TEXT NOT NULL UNIQUE DEFAULT replace(gen_random_uuid()::text, '-', ''),
-  notes       TEXT,
-  is_active   BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  academy_id        UUID NOT NULL REFERENCES academies(id) ON DELETE CASCADE,
+  user_id           UUID UNIQUE REFERENCES users(id) ON DELETE SET NULL,
+  name              TEXT NOT NULL,
+  birth_date        DATE,
+  phone             TEXT,
+  emergency_contact TEXT,
+  terms_accepted_at TIMESTAMPTZ,              -- RF-02 passo 4
+  notes             TEXT,
+  is_active         BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Responsavel legal do aluno menor e consentimento (RF-22, LGPD).
+-- INSCRICAO_MODALIDADE (RF-20): uma trilha independente por modalidade.
+CREATE TABLE enrollments (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  student_id  UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  modality_id TEXT NOT NULL REFERENCES modalities(id),
+  belt_id     UUID NOT NULL REFERENCES belts(id),
+  belt_since  DATE NOT NULL DEFAULT CURRENT_DATE,  -- data de obtencao da faixa atual
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (student_id, modality_id)
+);
+
+-- Responsavel legal do menor e consentimento (RF-22, art. 14 da LGPD).
 CREATE TABLE guardians (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  user_id    UUID REFERENCES users(id) ON DELETE SET NULL,  -- acesso previsto no RF-22
   name       TEXT NOT NULL,
   relation   TEXT,
   email      TEXT,
@@ -91,16 +134,17 @@ CREATE TABLE consents (
   granted_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Turmas (RF-11) e matricula em turmas.
+-- TURMA (RF-11) e MATRICULA_TURMA.
 CREATE TABLE classes (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   academy_id  UUID NOT NULL REFERENCES academies(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
-  modality_id TEXT NOT NULL DEFAULT 'judo',
+  modality_id TEXT NOT NULL REFERENCES modalities(id),
   teacher_id  UUID REFERENCES users(id) ON DELETE SET NULL,
   weekdays    INTEGER[] NOT NULL DEFAULT '{}',   -- 0 = domingo ... 6 = sabado
   start_time  TIME,
   end_time    TIME,
+  capacity    INTEGER CHECK (capacity IS NULL OR capacity > 0),
   is_active   BOOLEAN NOT NULL DEFAULT TRUE,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -111,38 +155,51 @@ CREATE TABLE class_enrollments (
   PRIMARY KEY (class_id, student_id)
 );
 
--- Presenca aula a aula (RF-03). Registro exclusivamente pedagogico.
+-- AULA e PRESENCA (RF-03). Presenca e registro exclusivamente pedagogico:
+-- nunca e bloqueada por situacao financeira (RF-17).
+CREATE TABLE lessons (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  class_id   UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  lesson_date DATE NOT NULL,
+  theme_technique_id UUID,                     -- tecnica-tema da aula (RF-13)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (class_id, lesson_date)
+);
 CREATE TABLE attendance (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_id    UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  lesson_id   UUID NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
   student_id  UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
-  class_date  DATE NOT NULL DEFAULT CURRENT_DATE,
-  method      TEXT NOT NULL DEFAULT 'chamada' CHECK (method IN ('chamada','qr')),
   recorded_by UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (class_id, student_id, class_date)
+  UNIQUE (lesson_id, student_id)
 );
-CREATE INDEX attendance_aluno_data ON attendance (student_id, class_date);
+CREATE INDEX attendance_aluno ON attendance (student_id);
 
--- Historico de exames de graduacao (RF-05, RF-06).
+-- GRADUACAO: historico de exames (RF-05, RF-06), por inscricao.
 CREATE TABLE graduations (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_id       UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  enrollment_id    UUID NOT NULL REFERENCES enrollments(id) ON DELETE CASCADE,
   from_belt_id     UUID REFERENCES belts(id),
   to_belt_id       UUID NOT NULL REFERENCES belts(id),
   exam_date        DATE NOT NULL DEFAULT CURRENT_DATE,
   result           TEXT NOT NULL CHECK (result IN ('aprovado','reprovado')),
+  -- Retrato do ciclo no momento do exame.
   classes_attended INTEGER,
   classes_required INTEGER,
+  months_in_belt   INTEGER,
+  months_required  INTEGER,
+  tech_pct         INTEGER,
+  tech_pct_required INTEGER,
+  was_flagged_apt  BOOLEAN NOT NULL,           -- a plataforma sinalizava apto?
   examiner_id      UUID REFERENCES users(id) ON DELETE SET NULL,
   notes            TEXT,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Arvore de habilidades (RF-14) e validacao pelo professor (RF-15).
+-- TECNICA e PROGRESSO_TECNICO (RF-14, RF-15).
 CREATE TABLE techniques (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  modality_id          TEXT NOT NULL,
+  modality_id          TEXT NOT NULL REFERENCES modalities(id),
   name                 TEXT NOT NULL,
   category             TEXT NOT NULL,
   required_for_belt_id UUID REFERENCES belts(id) ON DELETE SET NULL,
@@ -164,7 +221,7 @@ CREATE TABLE skill_progress (
   UNIQUE (student_id, technique_id)
 );
 
--- Diario de treino (RF-13, fora do nucleo do MVP).
+-- DIARIO_TREINO (RF-13, importante, fora do nucleo do MVP).
 CREATE TABLE training_logs (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
@@ -176,7 +233,7 @@ CREATE TABLE training_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Avisos na caixa de entrada da academia (RF-07).
+-- Comunicados (RF-07).
 CREATE TABLE announcements (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   academy_id UUID NOT NULL REFERENCES academies(id) ON DELETE CASCADE,
@@ -187,17 +244,19 @@ CREATE TABLE announcements (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Mensalidades (RF-08, fora do nucleo do MVP). Sem bloqueio de presenca (RF-17).
+-- ASSINATURA e FATURA (RF-08, importante). Sem campos de bloqueio: o RF-17
+-- so sinaliza a gestao.
 CREATE TABLE subscriptions (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  academy_id    UUID NOT NULL REFERENCES academies(id) ON DELETE CASCADE,
-  student_id    UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
-  monthly_value NUMERIC(10,2) NOT NULL,
-  due_day       INTEGER NOT NULL DEFAULT 10 CHECK (due_day BETWEEN 1 AND 28),
-  method        TEXT NOT NULL DEFAULT 'manual' CHECK (method IN ('pix','cartao','boleto','manual')),
-  status        TEXT NOT NULL DEFAULT 'ativa'
-                CHECK (status IN ('ativa','inadimplente','suspensa','cancelada')),
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  academy_id        UUID NOT NULL REFERENCES academies(id) ON DELETE CASCADE,
+  student_id        UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  monthly_value     NUMERIC(10,2) NOT NULL,
+  due_day           INTEGER NOT NULL DEFAULT 10 CHECK (due_day BETWEEN 1 AND 28),
+  grace_period_days INTEGER NOT NULL DEFAULT 5,
+  method            TEXT NOT NULL DEFAULT 'manual' CHECK (method IN ('pix','cartao','boleto','manual')),
+  status            TEXT NOT NULL DEFAULT 'ativa'
+                    CHECK (status IN ('ativa','inadimplente','suspensa','cancelada')),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE invoices (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -212,7 +271,7 @@ CREATE TABLE invoices (
   UNIQUE (subscription_id, competence)
 );
 
--- Trilha de auditoria (LGPD e controle de acessos).
+-- Trilha de auditoria (RNF-05, secao 4.10).
 CREATE TABLE audit_log (
   id         BIGSERIAL PRIMARY KEY,
   actor_id   UUID REFERENCES users(id) ON DELETE SET NULL,

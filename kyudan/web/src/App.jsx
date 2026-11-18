@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, definirToken, definirAoExpirar, temToken } from './api.js';
-import { Painel, Acessos, Academias, Alunos, Chamada, Avisos, MinhaTrilha, Auditoria } from './paginas.jsx';
+import { Painel, Acessos, Academias, Alunos, Chamada, Avisos, MinhaTrilha, Auditoria, Faixas } from './paginas.jsx';
 
 export const NOMES_PERFIL = {
   superadmin: 'Administrador supremo',
@@ -18,6 +18,7 @@ const MENU = [
   { id: 'academias', nome: 'Academias', perfis: ['superadmin', 'admin'], Tela: Academias },
   { id: 'alunos', nome: 'Alunos', perfis: ['superadmin', 'admin', 'gestor', 'mestre', 'autonomo'], Tela: Alunos },
   { id: 'chamada', nome: 'Turmas e chamada', perfis: ['superadmin', 'admin', 'gestor', 'mestre', 'autonomo'], Tela: Chamada },
+  { id: 'faixas', nome: 'Faixas e requisitos', perfis: ['superadmin', 'admin', 'gestor'], Tela: Faixas },
   { id: 'avisos', nome: 'Avisos', perfis: ['superadmin', 'admin', 'gestor', 'mestre', 'autonomo', 'aluno'], Tela: Avisos },
   { id: 'acessos', nome: 'Acessos', perfis: ['superadmin', 'admin', 'gestor'], Tela: Acessos },
   { id: 'auditoria', nome: 'Auditoria', perfis: ['superadmin'], Tela: Auditoria },

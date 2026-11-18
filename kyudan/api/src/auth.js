@@ -6,9 +6,10 @@ export const GLOBAIS = ['superadmin', 'admin']; // enxergam todas as academias
 export const EQUIPE = ['superadmin', 'admin', 'gestor', 'mestre', 'autonomo'];
 
 export class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, extra = undefined) {
     super(message);
     this.status = status;
+    this.extra = extra; // campos adicionais na resposta, ex.: { requer_confirmacao: true }
   }
 }
 
@@ -72,3 +73,32 @@ export function exigirMesmaAcademia(user, academyId) {
 }
 
 export const rota = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+
+// Secao 4.10: o professor acessa apenas os alunos das turmas sob sua
+// responsabilidade. Gestao ve a academia; perfis globais veem tudo.
+export const PROFESSORES = ['mestre', 'autonomo'];
+export const ehProfessor = (user) => PROFESSORES.includes(user.role);
+
+export async function alunoVisivel(user, student) {
+  if (ehGlobal(user)) return true;
+  if (user.role === 'aluno') return student.user_id === user.id;
+  if (student.academy_id !== user.academy_id) return false;
+  if (user.role === 'gestor') return true;
+  if (ehProfessor(user)) {
+    return !!(await one(
+      `SELECT 1 FROM class_enrollments e JOIN classes c ON c.id = e.class_id
+        WHERE e.student_id = $1 AND c.teacher_id = $2 LIMIT 1`,
+      [student.id, user.id],
+    ));
+  }
+  return false;
+}
+
+// Turma visivel: gestao ve as da academia; professor so as proprias.
+export function turmaVisivel(user, turma) {
+  if (ehGlobal(user)) return true;
+  if (turma.academy_id !== user.academy_id) return false;
+  if (user.role === 'gestor') return true;
+  if (ehProfessor(user)) return turma.teacher_id === user.id;
+  return false;
+}

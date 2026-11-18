@@ -27,7 +27,9 @@ export async function api(path, { method = 'GET', body, query } = {}) {
   if (!res.ok) {
     const sessaoPerdida = res.status === 401 || data.error === 'Seu acesso foi revogado.';
     if (sessaoPerdida && path !== '/auth/login') aoExpirar(data.error);
-    throw new Error(data.error || 'Não foi possível concluir a operação.');
+    const erro = new Error(data.error || 'Não foi possível concluir a operação.');
+    erro.dados = data; // ex.: { requer_confirmacao: true }
+    throw erro;
   }
   return data;
 }
